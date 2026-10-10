@@ -1,0 +1,19 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: nest-dws-redis
+    restart: unless-stopped
+    # Host 6380 -> container 6379 (6379 is used by another local project).
+    ports:
+      - '6380:6379'
+    command: ['redis-server', '--appendonly', 'yes']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - nest-dws-redisdata:/data
+
+volumes:
+  nest-dws-redisdata:
