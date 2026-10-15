@@ -6,12 +6,13 @@ import { randomUUID } from "crypto";
 export class NotificationsService {
     constructor( private readonly gateway: NotificationsGateway){}
 
-    send(input: {title: string; body: string}) {
+    send(input: {title: string; body: string; senderId?: string}) {
         const notification: INotification = {
             id: randomUUID(),
             title: input.title,
             body: input.body,
             ts: Date.now(),
+            senderId: input.senderId,
         };
 
         this.gateway.broadcast(notification)

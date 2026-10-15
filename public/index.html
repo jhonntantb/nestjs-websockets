@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Distributed WS · Redis Streams</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header>
+      <div class="title-container">
+        <h1>🔔 Notificaciones</h1>
+        <span id="status" class="offline">offline</span>
+      </div>
+      <div class="header-chips">
+        <span id="user-chip" class="user-badge" title="Tu identificador único de sesión">Tú: ...</span>
+      </div>
+    </header>
+
+    <div class="controls-card">
+      <form id="message-form" class="message-form">
+        <input 
+          id="title" 
+          placeholder="Escribe una notificación y presiona Enter..." 
+          autocomplete="off" 
+          required 
+        />
+        <button type="submit" id="send">
+          <span>➤</span> Enviar
+        </button>
+      </form>
+
+      <div class="connection-toolbar">
+        <button type="button" id="drop" title="Cierra el transporte abruptamente sin reconectar">
+          ⚡ Drop connection
+        </button>
+        <button type="button" id="reconnect" title="Reconectar manualmente y recuperar mensajes perdidos">
+          🔌 Reconnect
+        </button>
+      </div>
+    </div>
+
+    <div class="feed-card">
+      <div class="feed-header">
+        <span>Historial en vivo</span>
+        <span id="feed-count">0 mensajes</span>
+      </div>
+      <ul id="feed">
+        <li class="empty-feed" id="empty-state">
+          No hay notificaciones aún. ¡Envía tu primer mensaje arriba!
+        </li>
+      </ul>
+    </div>
+
+    <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+    <script>
+      // Identificador de cliente único por pestaña/sesión
+      let clientId = sessionStorage.getItem('ws_client_id');
+      if (!clientId) {
+        clientId = 'user-' + Math.random().toString(36).substring(2, 7);
+        sessionStorage.setItem('ws_client_id', clientId);
+      }
+      document.getElementById('user-chip').textContent = 'Tú: #' + clientId;
+
+      // Conexión WebSocket
+      const socket = io(location.origin, {
+        transports: ['websocket'], // Saltea polling HTTP
+        reconnection: false,       // Reconexión controlada manualmente
+      });
+
+      const feed = document.getElementById('feed');
+      const emptyState = document.getElementById('empty-state');
+      const feedCount = document.getElementById('feed-count');
+      const statusEl = document.getElementById('status');
+      const titleInput = document.getElementById('title');
+      const sendBtn = document.getElementById('send');
+      const dropBtn = document.getElementById('drop');
+      const reconnectBtn = document.getElementById('reconnect');
+      const form = document.getElementById('message-form');
+
+      let messageCounter = 0;
+
+      function updateCounter() {
+        feedCount.textContent = `${messageCounter} mensaje${messageCounter === 1 ? '' : 's'}`;
+      }
+
+      function scrollToBottom() {
+        feed.scrollTop = feed.scrollHeight;
+      }
+
+      function appendRow(li) {
+        if (emptyState && emptyState.parentNode) {
+          emptyState.remove();
+        }
+        feed.appendChild(li);
+        messageCounter++;
+        updateCounter();
+        scrollToBottom();
+      }
+
+      function system(text) {
+        const li = document.createElement('li');
+        li.className = 'system';
+        li.textContent = text;
+        appendRow(li);
+      }
+
+      function setStatus(online) {
+        statusEl.textContent = online ? 'online' : 'offline';
+        statusEl.className = online ? 'online' : 'offline';
+
+        // Sincronizar estados de botones
+        dropBtn.disabled = !online;
+        reconnectBtn.disabled = online;
+        sendBtn.disabled = !online;
+        titleInput.disabled = !online;
+
+        if (online) {
+          titleInput.focus();
+        }
+      }
+
+      // Estado inicial desconectado hasta que socket.on('connect') dispare
+      setStatus(false);
+
+      socket.on('connect', () => {
+        setStatus(true);
+        system('🟢 Conectado al servidor WebSocket');
+      });
+
+      socket.on('disconnect', () => {
+        setStatus(false);
+      });
+
+      // Llegada de notificación
+      socket.on('notification', (n) => {
+        const isMine = Boolean(n.senderId && n.senderId === clientId);
+        const replayed = socket.recovered;
+
+        const li = document.createElement('li');
+        li.className = isMine ? 'sent' : 'received';
+        if (replayed) {
+          li.classList.add('replayed');
+        }
+
+        // Meta info (Emisor + Hora + Badge)
+        const meta = document.createElement('div');
+        meta.className = 'message-meta';
+
+        const senderSpan = document.createElement('span');
+        senderSpan.className = 'message-sender';
+        senderSpan.textContent = isMine ? 'Tú' : (n.senderId ? '#' + n.senderId : 'Notificación');
+
+        const timeSpan = document.createElement('span');
+        timeSpan.className = 'message-time';
+        const date = n.ts ? new Date(n.ts) : new Date();
+        timeSpan.textContent = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+        meta.append(senderSpan);
+
+        if (replayed) {
+          const replayBadge = document.createElement('span');
+          replayBadge.className = 'replay-badge';
+          replayBadge.textContent = '🔁 RECUPERADO';
+          meta.append(replayBadge);
+        }
+
+        meta.append(timeSpan);
+
+        // Contenido del mensaje
+        const titleEl = document.createElement('div');
+        titleEl.className = 'message-title';
+        titleEl.textContent = n.title;
+
+        li.append(meta, titleEl);
+
+        if (n.body && n.body !== 'New notification' && n.body !== n.title) {
+          const bodyEl = document.createElement('div');
+          bodyEl.className = 'message-body';
+          bodyEl.textContent = n.body;
+          li.append(bodyEl);
+        }
+
+        appendRow(li);
+      });
+
+      // Envío de mensaje (con Enter o botón Send)
+      form.onsubmit = async (e) => {
+        e.preventDefault();
+        const title = titleInput.value.trim();
+        if (!title) return;
+
+        titleInput.value = '';
+        try {
+          await fetch('/notifications/notify', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              title: title,
+              senderId: clientId,
+            }),
+          });
+        } catch (err) {
+          system('❌ Error al enviar mensaje: ' + err.message);
+        }
+      };
+
+      // Drop connection (cierre manual)
+      dropBtn.onclick = () => {
+        socket.io.engine.close();
+        setStatus(false);
+        system('⚡ Conexión interrumpida — esperando reconexión manual');
+      };
+
+      // Reconnect (reconexión manual)
+      reconnectBtn.onclick = () => {
+        system('🔌 Intentando reconectar...');
+        socket.connect();
+      };
+    </script>
+  </body>
+</html>

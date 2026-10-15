@@ -6,6 +6,7 @@ export interface INotification {
     title: string;
     body: string;
     ts: number;
+    senderId?: string;
 }
 @WebSocketGateway()
 export class NotificationsGateway implements OnGatewayConnection {
