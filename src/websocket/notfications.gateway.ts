@@ -8,14 +8,18 @@ export interface INotification {
     ts: number;
     senderId?: string;
 }
-@WebSocketGateway()
+@WebSocketGateway({
+  cors: {
+    origin: '*',
+  },
+})
 export class NotificationsGateway implements OnGatewayConnection {
-    @WebSocketServer() server!: Server
-    handleConnection(client: Socket) {
-        console.log(`Client ${client.id} connectec!`)
-    }
+  @WebSocketServer() server!: Server;
+  handleConnection(client: Socket) {
+    console.log(`Client ${client.id} connected!`);
+  }
     
-    broadcast(n: INotification) {
-        this.server.emit('notification', n);
-    }
+  broadcast(n: INotification) {
+    this.server.emit('notification', n);
+  }
 }

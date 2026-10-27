@@ -132,6 +132,11 @@
         setStatus(false);
       });
 
+      socket.on('connect_error', (err) => {
+        setStatus(false);
+        system('❌ Error de conexión WS: ' + err.message);
+      });
+
       // Llegada de notificación
       socket.on('notification', (n) => {
         const isMine = Boolean(n.senderId && n.senderId === clientId);
